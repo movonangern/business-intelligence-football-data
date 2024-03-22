@@ -1,2 +1,5 @@
 data/
 venv/
+.venv/
+notebooks/OLTP/football.db
+football_db_dump.sql
