@@ -1,11 +1,10 @@
 import streamlit as st
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import func
 from utils.ORM_model import DimPlayer, FactAppearance, DimClub, DimCompetition, DimGame
 import pandas as pd
-import plotly.express as px
-from sqlalchemy import Integer, Float, Numeric
+from sklearn.preprocessing import MinMaxScaler
+from decimal import Decimal
 
 # Verbindung zur Datenbank herstellen
 DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
@@ -13,65 +12,70 @@ engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 session = Session()
 
-def calculate_metrics(player_id, player_position):
-    # Metriken und Gewichtungen definieren
+# Cache für Metrik-Perzentile
+metric_percentiles_cache = {}
+
+def calculate_metric_per_90(player_id, column):
+    value = session.query(
+        func.sum(getattr(FactAppearance, column)) / func.sum(FactAppearance.minutes_played) * 90
+    ).filter(FactAppearance.player_id == player_id).scalar()
+    return float(value) if value is not None else 0
+
+def calculate_weighted_percentile(player_id, columns, weights, position, metric):
+    cache_key = f"{player_id}_{position}_{metric}"
+    if cache_key in metric_percentiles_cache:
+        return metric_percentiles_cache[cache_key]
+
+    player_values = [calculate_metric_per_90(player_id, column) for column in columns]
+    weighted_player_value = sum(value * weight for value, weight in zip(player_values, weights))
+
+    all_players = session.query(DimPlayer.player_id).join(FactAppearance).filter(DimPlayer.position == position).distinct().all()
+    all_player_ids = [player[0] for player in all_players]
+
+    all_weighted_values = []
+    for player_id in all_player_ids:
+        player_values = [calculate_metric_per_90(player_id, column) for column in columns]
+        weighted_value = sum(value * weight for value, weight in zip(player_values, weights))
+        all_weighted_values.append(weighted_value)
+
+    sorted_values = sorted(all_weighted_values)
+    percentile = (sorted_values.index(weighted_player_value) + 1) / len(sorted_values) * 100
+
+    metric_percentiles_cache[cache_key] = percentile
+    return percentile
+
+def calculate_metrics(player_id, position):
     metrics = {
-        'Offensive': {'goals2': 0.4, 'assists': 0.3, 'shots': 0.1, 'shots_on_target': 0.2, 'expected_goals': 0.1, 'expected_goal_assists': 0.1},
-        'Defensive': {'number_of_tackles': 0.4, 'ball_win': 0.4, 'blocks': 0.2},
-        'Passing': {'successful_passes': 0.3, 'attempted_passes': 0.2, 'pass_accuracy_in_percent': 0.3, 'progressive_passes': 0.2},
-        'Dribbling': {'carries': 0.4, 'progressive_runs': 0.3, 'attempted_dribbles': 0.2, 'successful_dribbling': 0.1},
-        'Discipline': {'yellow_cards': 0.5, 'red_cards': 0.5}
+        "Offensive": {
+            "columns": ["goals2", "shots", "shots_on_target", "expected_goals", "assists", "expected_goal_assists"],
+            "weights": [0.3, 0.2, 0.2, 0.1, 0.1, 0.1]
+        },
+        "Defensive": {
+            "columns": ["number_of_tackles", "ball_win", "blocks", "touches"],
+            "weights": [0.4, 0.3, 0.2, 0.1]
+        },
+        "Passing": {
+            "columns": ["successful_passes", "attempted_passes", "pass_accuracy_in_percent", "progressive_passes"],
+            "weights": [0.3, 0.2, 0.3, 0.2]
+        },
+        "Dribbling": {
+            "columns": ["attempted_dribbles", "successful_dribbling", "progressive_runs"],
+            "weights": [0.4, 0.4, 0.2]
+        },
+        "Discipline": {
+            "columns": ["yellow_card", "red_card"],
+            "weights": [0.7, 0.3]
+        }
     }
 
-    # Metriken berechnen
-    metric_values = {}
-    for metric_name, columns in metrics.items():
-        metric_value = 0
-        for column, weight in columns.items():
-            percentile = session.query(
-                func.percent_rank().over(
-                    order_by=getattr(FactAppearance, column),
-                    partition_by=DimPlayer.position
-                )
-            ).filter(
-                FactAppearance.player_id == player_id,
-                DimPlayer.position == player_position
-            ).join(
-                DimPlayer, FactAppearance.player_id == DimPlayer.player_id
-            ).scalar()
+    metric_percentiles = {}
+    for metric, data in metrics.items():
+        columns = data["columns"]
+        weights = data["weights"]
+        percentile = calculate_weighted_percentile(player_id, columns, weights, position, metric)
+        metric_percentiles[metric] = percentile
 
-            if percentile is not None:
-                metric_value += weight * percentile * 100
-        
-        metric_values[metric_name] = round(metric_value, 2)
-
-    # Allgemeine Metrik berechnen
-    all_columns = [col.name for col in FactAppearance.__table__.columns if isinstance(col.type, (Integer, Float, Numeric))]
-    all_values = []
-    for col in all_columns:
-        percentile = session.query(
-            func.percent_rank().over(
-                order_by=getattr(FactAppearance, col),
-                partition_by=DimPlayer.position
-            )
-        ).filter(
-            FactAppearance.player_id == player_id,
-            DimPlayer.position == player_position
-        ).join(
-            DimPlayer, FactAppearance.player_id == DimPlayer.player_id
-        ).scalar()
-
-        if percentile is not None:
-            all_values.append(percentile * 100)
-    
-    if len(all_values) > 0:
-        overall_metric = round(sum(all_values) / len(all_values), 2)
-    else:
-        overall_metric = 0
-    
-    metric_values['Overall'] = overall_metric
-
-    return metric_values
+    return metric_percentiles
 
 def main():
     st.set_page_config(page_title='Fußballspieler-Analyse', layout='wide')
@@ -122,8 +126,8 @@ def main():
         # Gesamtstatistiken des Spielers abrufen
         total_goals = session.query(func.sum(FactAppearance.goals2)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
         total_assists = session.query(func.sum(FactAppearance.assists)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
-        total_yellow_cards = session.query(func.sum(FactAppearance.yellow_cards)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
-        total_red_cards = session.query(func.sum(FactAppearance.red_cards)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
+        total_yellow_cards = session.query(func.sum(FactAppearance.yellow_card)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
+        total_red_cards = session.query(func.sum(FactAppearance.red_card)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
         total_minutes_played = session.query(func.sum(FactAppearance.minutes_played)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
 
         # Gesamtstatistiken anzeigen
@@ -134,17 +138,30 @@ def main():
         col3.metric('Gelbe Karten', int(total_yellow_cards) if total_yellow_cards is not None else 0)
         col4.metric('Rote Karten', int(total_red_cards) if total_red_cards is not None else 0)
         col5.metric('Spielminuten', int(total_minutes_played) if total_minutes_played is not None else 0)
+        
+        # Berechne die Metrik-Perzentile für den ausgewählten Spieler
+        metric_percentiles = calculate_metrics(selected_player.player_id, selected_player.position)
 
-        # Metriken berechnen und anzeigen
-        player_metrics = calculate_metrics(selected_player.player_id, selected_player.position)
-        st.subheader('Metriken')
-        col1, col2, col3 = st.columns(3)
-        col1.metric('Offensive', float(player_metrics['Offensive']))
-        col2.metric('Defensive', float(player_metrics['Defensive']))
-        col3.metric('Passing', float(player_metrics['Passing']))
-        col1.metric('Dribbling', float(player_metrics['Dribbling']))
-        col2.metric('Discipline', float(player_metrics['Discipline']))
-        col3.metric('Overall', float(player_metrics['Overall']))
+        # Berechne den Overall-Wert als gewichteten Durchschnitt der Metrik-Perzentile
+        overall_weights = {
+            "Offensive": 0.3,
+            "Defensive": 0.2,
+            "Passing": 0.2,
+            "Dribbling": 0.2,
+            "Discipline": 0.1
+        }
+        metric_percentiles["Overall"] = sum(metric_percentiles[metric] * overall_weights[metric] for metric in metric_percentiles)
+
+        # Metrik-Perzentile anzeigen
+        st.subheader('Metrik-Perzentile')
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        col1.metric('Offensive', f"{metric_percentiles['Offensive']:.2f}")
+        col2.metric('Defensive', f"{metric_percentiles['Defensive']:.2f}")
+        col3.metric('Passing', f"{metric_percentiles['Passing']:.2f}")
+        col4.metric('Dribbling', f"{metric_percentiles['Dribbling']:.2f}")
+        col5.metric('Discipline', f"{metric_percentiles['Discipline']:.2f}")
+        col6.metric('Overall', f"{metric_percentiles['Overall']:.2f}")
+
     else:
         st.warning('Spieler nicht gefunden.')
 
