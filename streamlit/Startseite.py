@@ -1,8 +1,8 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="D",
-    page_icon="👋",
+    page_title="Dashboard",
+    page_icon="⚽️",
 )
 
 st.write("# Welcome to Streamlit! 👋")
