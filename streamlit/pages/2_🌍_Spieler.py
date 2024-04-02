@@ -3,8 +3,6 @@ from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 from utils.ORM_model import DimPlayer, FactAppearance, DimClub, DimCompetition, DimGame
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
-from decimal import Decimal
 
 # Verbindung zur Datenbank herstellen
 DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
@@ -128,7 +126,7 @@ def main():
         total_assists = session.query(func.sum(FactAppearance.assists)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
         total_yellow_cards = session.query(func.sum(FactAppearance.yellow_card)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
         total_red_cards = session.query(func.sum(FactAppearance.red_card)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
-        total_minutes_played = session.query(func.sum(FactAppearance.minutes_played)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
+        total_minutes_played = session.query(func.sum(FactAppearance.minutes_played)).filter(FactAppearance.player_id == selected_player.player_id,FactAppearance.goals2 != None).scalar()
 
         # Gesamtstatistiken anzeigen
         st.subheader('Gesamtstatistiken')
