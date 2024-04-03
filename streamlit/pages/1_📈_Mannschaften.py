@@ -32,6 +32,9 @@ def get_club_info(session, selected_team_name):
     club_info = session.query(DimClub).filter(DimClub.name == selected_team_name).first()
     return club_info
 
+def get_selected_team_id(session, selected_team_name):
+    return session.query(DimClub).filter(DimClub.name == selected_team_name).first().domestic_competition_id
+
 def get_players_by_team(session, selected_team_name):
     return session.query(DimPlayer).join(DimClub, DimPlayer.current_club_id == DimClub.club_id)\
         .filter(DimClub.name == selected_team_name).all()
@@ -142,6 +145,57 @@ def calculate_current_form(session, selected_team_name):
     else:
         return 0  # Rückgabe eines Standardwerts, wenn keine Spiele vorhanden sind
 
+def plot_home_away_game_results_bar(session, selected_team_name):
+    season_start = get_current_season_start()
+
+    # Spiele des ausgewählten Teams abrufen
+    games = session.query(DimGame).filter(
+        ((DimGame.home_club_name == selected_team_name) | (DimGame.away_club_name == selected_team_name)) &
+        (func.date(DimGame.date) >= season_start)
+    ).all()
+
+    # Heim- und Auswärtsergebnisse zählen
+    home_results = {'Gewonnen': 0, 'Unentschieden': 0, 'Verloren': 0}
+    away_results = {'Gewonnen': 0, 'Unentschieden': 0, 'Verloren': 0}
+
+    for game in games:
+        if game.home_club_name == selected_team_name:  # Heimspiel
+            if game.home_club_goals > game.away_club_goals:
+                home_results['Gewonnen'] += 1
+            elif game.home_club_goals == game.away_club_goals:
+                home_results['Unentschieden'] += 1
+            else:
+                home_results['Verloren'] += 1
+        else:  # Auswärtsspiel
+            if game.away_club_goals > game.home_club_goals:
+                away_results['Gewonnen'] += 1
+            elif game.away_club_goals == game.home_club_goals:
+                away_results['Unentschieden'] += 1
+            else:
+                away_results['Verloren'] += 1
+
+    # Farben für die Balken festlegen
+    colors = ['green', 'orange', 'red']  # Beispielhafte Farben für Gewonnen, Unentschieden, Verloren
+
+    # Ergebnisse in ein Bar-Chart visualisieren
+    fig = go.Figure(data=[
+        go.Bar(name='Gewonnen', x=['Heim', 'Auswärts'], y=[home_results['Gewonnen'], away_results['Gewonnen']], marker_color=colors[0]),
+        go.Bar(name='Unentschieden', x=['Heim', 'Auswärts'], y=[home_results['Unentschieden'], away_results['Unentschieden']], marker_color=colors[1]),
+        go.Bar(name='Verloren', x=['Heim', 'Auswärts'], y=[home_results['Verloren'], away_results['Verloren']], marker_color=colors[2])
+    ])
+
+    # Layout anpassen
+    fig.update_layout(
+        barmode='group',
+        title='Heim- vs. Auswärtsspiel-Performance',
+        xaxis=dict(title='Spielort', tickmode='array', tickvals=['Heim', 'Auswärts']),
+        yaxis=dict(title='Anzahl der Spiele'),
+        legend_title='Spielresultate',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+
+    # Chart in Streamlit darstellen
+    st.plotly_chart(fig)
 
 def calculate_league_form_quantiles(session):
     """Calculates the 25th and 75th percentile of league's form."""
@@ -195,10 +249,6 @@ def calculate_league_average_points(session, selected_team_name):
             
     return average_points
 
-def get_team_playstyle(session, selected_team_name):
-    """Gets the playstyle of the selected team."""
-    # Here you can implement logic to determine the playstyle based on various factors
-    return "Offensiv"  # Placeholder value
 
 def get_team_preferred_formation(session, selected_team_name):
     """Gets the preferred formation of the selected team."""
@@ -346,6 +396,36 @@ def plot_team_performance_over_season(session, selected_team_name):
     
     st.plotly_chart(fig)
 
+def calculate_shooting_accuracy(session, selected_team_name):
+    # Mannschafts-ID abrufen
+    selected_team_id = session.query(DimClub).filter(DimClub.name == selected_team_name).first().club_id
+    
+    # Tore und Torschüsse für die ausgewählte Mannschaft abrufen
+    goals_query = session.query(func.sum(DimGame.home_club_goals).label('home_goals'), func.sum(DimGame.away_club_goals).label('away_goals')).\
+                  filter((DimGame.home_club_id == selected_team_id) | (DimGame.away_club_id == selected_team_id))
+    
+    shots_query = session.query(func.sum(FactAppearance.shots).label('shots')).\
+                  join(DimGame, DimGame.game_id == FactAppearance.game_id).\
+                  filter((FactAppearance.player_club_id == selected_team_id) | (FactAppearance.player_current_club_id == selected_team_id))
+    
+    # Ergebnisse der Abfragen abrufen
+    goals_result = goals_query.first()
+    shots_result = shots_query.first()
+    
+    # Tore und Torschüsse extrahieren
+    home_goals = goals_result.home_goals or 0
+    away_goals = goals_result.away_goals or 0
+    total_goals = home_goals + away_goals
+    total_shots = shots_result.shots or 0
+    
+    # Torschussquote berechnen (in Prozent)
+    if total_shots > 0:
+        shooting_accuracy = (total_goals / total_shots) * 100
+    else:
+        shooting_accuracy = 0
+    
+    return shooting_accuracy
+
 def plot_goal_effectiveness(session, selected_team_name):
     season_start = get_current_season_start()
     
@@ -389,6 +469,7 @@ def plot_goal_effectiveness(session, selected_team_name):
 
     # Diagramm anzeigen
     st.plotly_chart(fig)
+
 
     
 def plot_game_outcomes(session, selected_team_name):
@@ -446,7 +527,7 @@ def main():
 
                 if club_info:
                     st.subheader(f"Vereinsinformationen für {selected_team_name}")
-                    col1, col2, col3, col4, col5, col6 = st.columns(6)
+                    col1, col2, col3, col4, col5 = st.columns(5)
                     col1.metric("Kadergröße", str(club_info.squad_size))
                     
                     net_transfer_value = club_info.net_transfer_record.strip().replace('€', '').replace('m', ' Mio').replace('k', ' K').replace('+', '').replace('-', '')
@@ -461,18 +542,17 @@ def main():
                     total_market_value = get_club_total_market_value(session, selected_team_id)
                     formatted_market_value = '{:,.2f} Mio'.format(total_market_value / 1000000) if total_market_value >= 1000000 else '{:,.2f}'.format(total_market_value)
                     col5.metric("Teamwert", f"€ {formatted_market_value}")  
-                    col6.metric("A-Nationalspieler", club_info.national_team_players)
+                    
                     
                     
                     #### NEXT ROW
-                    col1, col2, col3, col4, col5, col6 = st.columns(6)
+                    col1, col2, col3, col4, col5 = st.columns(5)
                     st.subheader(f"Vereinsinformationen für {selected_team_name}")
                     col1.metric("aktuelle Form", evaluate_team_form(session, selected_team_name))
-                    col2.metric("Spielstil", get_team_playstyle(session, selected_team_name))
+                    col2.metric("A-Nationalspieler", club_info.national_team_players)
                     col3.metric("Punkteschnitt", calculate_league_average_points(session, selected_team_name))
                     col4.metric("bevorzugte Aufstellung", get_preferred_formation_by_team_name(session, selected_team_name))
-                    col5.metric("x", calculate_average_xg_per_game(session, selected_team_name))
-                    col6.metric("Punkteschnitt", "nein")
+                    col5.metric("Liga", get_selected_team_id(session, selected_team_name))
                 # Spalten für Spielerinformationen und Top Scorer Diagramm
                 
                 col1, col2 = st.columns(2)
@@ -496,7 +576,7 @@ def main():
                 with col1:
                     plot_points_over_season(session, selected_team_name)
                 with col2:
-                    plot_goal_effectiveness(session, selected_team_name)
+                    plot_home_away_game_results_bar(session, selected_team_name)
                 with col3:
                     plot_game_outcomes(session, selected_team_name)
         with tab2:
