@@ -1,83 +1,149 @@
-# CODE
+#streamlit\pages\2_🌍_Spieler.py
 
 import streamlit as st
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import func
-from utils.ORM_model import DimPlayer, FactAppearance, DimClub, DimCompetition, DimGame
-import plotly.express as px
-import pandas as pd
+from utils.ORM_model import DimPlayer, DimClub
+from lib.Spieler.lib_spieler import get_player_stats, display_player_info, player_age, compare_players
 
-# Verbindung zur Datenbank herstellen
+
 DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 session = Session()
 
+            
 def main():
     st.set_page_config(page_title='Fußballspieler-Analyse', layout='wide')
     st.title("Spielerauswertung")
-
-    # Spalten für Spielerauswahl, Leerraum und Bilder erstellen
-    select_col, empty_col, images_col = st.columns([2, 2, 1.5])
-
-    # Dropdown-Menü für die Auswahl des Spielers in der ersten Spalte
-    with select_col:
-        players = session.query(DimPlayer).all()
-        player_names = [player.name for player in players]
-        selected_player_name = st.selectbox("Wähle einen Spieler", player_names)
-
-    # Spieler anhand des ausgewählten Namens abrufen
-    selected_player = session.query(DimPlayer).filter(DimPlayer.name == selected_player_name).first()
-
-    if selected_player:
-        # Spielerbild und Vereinswappen nebeneinander in der dritten Spalte anzeigen
-        with images_col:
-            player_col, club_col = st.columns(2)
-            with player_col:
-                st.image(selected_player.image_url, width=100)
-            with club_col:
-                current_club = session.query(DimClub).filter(DimClub.club_id == selected_player.current_club_id).first()
+    
+    tab1, tab2 = st.tabs(["Einzelspieleranalyse", "Spielervergleich"])
+    
+    with tab1:
+        select_col, _, images_col = st.columns([2, 2, 1.5])
+        
+        with select_col:
+            players = session.query(DimPlayer).all()
+            selected_player_name = st.selectbox("Wähle einen Spieler", [player.name for player in players])
+        
+        selected_player = session.query(DimPlayer).filter(DimPlayer.name == selected_player_name).first()
+        
+        if selected_player:
+            current_club = session.query(DimClub).filter(DimClub.club_id == selected_player.current_club_id).first()
+            
+            with images_col:
+                player_col, club_col = st.columns(2)
+                player_col.image(selected_player.image_url, width=100)
                 if current_club:
                     club_logo_url = f"https://tmssl.akamaized.net/images/wappen/head/{current_club.club_id}.png?lm=1656580823"
-                    st.image(club_logo_url, width=100)
+                    club_col.image(club_logo_url, width=100)
+            
+            player_stats = get_player_stats(selected_player.player_id)
+            display_player_info(selected_player, player_stats)
+        
+        else:
+            st.warning('Spieler nicht gefunden.')
 
-        st.header(f'Spieleranalyse für {selected_player.name}')
+    with tab2:
+        st.subheader('Spielervergleich (H2H)')
+        player1_col, player2_col = st.columns([3, 3])
+        players = session.query(DimPlayer).all()
 
-        # Spielerinformationen horizontal anzeigen
-        st.subheader('Spielerinformationen')
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric('Position', selected_player.position)
-        col2.metric('Aktueller Verein', selected_player.current_club_name)
-        col3.metric('Nationalität', selected_player.country_of_citizenship)
-        col4.metric('Alter', pd.to_datetime('today').year - pd.to_datetime(selected_player.date_of_birth).year)
+        with player1_col:
+            player1_image_col, player1_club_col, empty_col, player1_name_col = st.columns([1, 1, 1, 3])
+            player1_name = player1_name_col.selectbox("Wähle Spieler 1", [player.name for player in players], key="player1")
+            player1 = session.query(DimPlayer).filter(DimPlayer.name == player1_name).first()
+            if player1:
+                player1_image_col.image(player1.image_url, width=75)
+                player1_club = session.query(DimClub).filter(DimClub.club_id == player1.current_club_id).first()
+                if player1_club:
+                    club1_logo_url = f"https://tmssl.akamaized.net/images/wappen/head/{player1_club.club_id}.png?lm=1656580823"
+                    player1_club_col.image(club1_logo_url, width=75)
+                
+                player1_info_col1, player1_info_col2 = st.columns(2)
+                player1_info_col1.metric('Alter', player_age(player1.date_of_birth))
+                player1_info_col2.metric('Position', player1.position)
 
-        # Vereinsinformationen horizontal anzeigen
-        if current_club:
-            st.subheader('Verein')
-            col1, col2, col3 = st.columns(3)
-            col1.metric('Verein', current_club.name)
-            col2.metric('Stadium', current_club.stadium_name)
-            col3.metric('Trainer', current_club.coach_name)
+        with player2_col:
+            player2_name_col, empty_col, player2_image_col, player2_club_col = st.columns([3, 1, 1, 1])
+            player2_name = player2_name_col.selectbox("Wähle Spieler 2", [player.name for player in players], key="player2")
+            player2 = session.query(DimPlayer).filter(DimPlayer.name == player2_name).first()
+            if player2:
+                player2_image_col.image(player2.image_url, width=75)
+                player2_club = session.query(DimClub).filter(DimClub.club_id == player2.current_club_id).first()
+                if player2_club:
+                    club2_logo_url = f"https://tmssl.akamaized.net/images/wappen/head/{player2_club.club_id}.png?lm=1656580823"
+                    player2_club_col.image(club2_logo_url, width=75)
+                
+                player2_info_col1, player2_info_col2 = st.columns(2)
+                player2_info_col1.metric('Alter', player_age(player2.date_of_birth))
+                player2_info_col2.metric('Position', player2.position)
 
-        # Gesamtstatistiken des Spielers abrufen
-        total_goals = session.query(func.sum(FactAppearance.goals2)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
-        total_assists = session.query(func.sum(FactAppearance.assists)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
-        total_yellow_cards = session.query(func.sum(FactAppearance.yellow_cards)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
-        total_red_cards = session.query(func.sum(FactAppearance.red_cards)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
-        total_minutes_played = session.query(func.sum(FactAppearance.minutes_played)).filter(FactAppearance.player_id == selected_player.player_id).scalar()
+        if player1 and player2:
+            _, chart_col, _ = st.columns([1.75, 8, 1])  # Hier wurde die Zahl auf 8 geändert
+            with chart_col:
+                comparison_fig, player1_stats, player2_stats = compare_players(player1.player_id, player2.player_id)
+                st.plotly_chart(comparison_fig, use_container_width=True)
 
-        # Gesamtstatistiken anzeigen
-        st.subheader('Gesamtstatistiken')
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric('Tore', int(total_goals) if total_goals is not None else 0)
-        col2.metric('Vorlagen', int(total_assists) if total_assists is not None else 0)
-        col3.metric('Gelbe Karten', int(total_yellow_cards) if total_yellow_cards is not None else 0)
-        col4.metric('Rote Karten', int(total_red_cards) if total_red_cards is not None else 0)
-        col5.metric('Spielminuten', int(total_minutes_played) if total_minutes_played is not None else 0)
+            metric_labels = ['Goal Contribution', 'Defensive Contribution', 'Passing Efficiency', 'Dribbling Ability', 'Shot Efficiency', 'Discipline', 'Involvement', 'Penalty Contribution']
 
-    else:
-        st.warning('Spieler nicht gefunden.')
+            player1_name_col, metric_cols, player2_name_col = st.columns([2, 4, 2])
+            player1_name_col.markdown(f"<h3 style='text-align: center;'>{player1.name}</h3>", unsafe_allow_html=True)
+            player2_name_col.markdown(f"<h3 style='text-align: center;'>{player2.name}</h3>", unsafe_allow_html=True)
+
+            for metric, player1_value, player2_value in zip(metric_labels, player1_stats, player2_stats):
+                player1_metric_col, metric_label_col, player2_metric_col = metric_cols.columns([2, 2, 2])
+
+                if player1_value is not None and player2_value is not None:
+                    if player1_value > player2_value:
+                        player1_metric_col.markdown(f"""
+                        <div style="background-color: #d4edda; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #155724; font-size: 20px; font-weight: bold; margin: 0;">{player1_value:.2f} <span style="color: green;">+{player1_value - player2_value:.2f}</span></p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        player2_metric_col.markdown(f"""
+                        <div style="background-color: #f8d7da; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #721c24; font-size: 20px; font-weight: bold; margin: 0;">{player2_value:.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    elif player2_value > player1_value:
+                        player1_metric_col.markdown(f"""
+                        <div style="background-color: #f8d7da; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #721c24; font-size: 20px; font-weight: bold; margin: 0;">{player1_value:.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        player2_metric_col.markdown(f"""
+                        <div style="background-color: #d4edda; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #155724; font-size: 20px; font-weight: bold; margin: 0;">{player2_value:.2f} <span style="color: green;">+{player2_value - player1_value:.2f}</span></p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        player1_metric_col.markdown(f"""
+                        <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">{player1_value:.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        player2_metric_col.markdown(f"""
+                        <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">{player2_value:.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    player1_metric_col.markdown(f"""
+                    <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                        <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">-</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    player2_metric_col.markdown(f"""
+                    <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                        <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">-</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                metric_label_col.markdown(f"<p style='text-align: center; font-weight: bold;'>{metric}</p>", unsafe_allow_html=True)
+
+        else:
+            st.warning('Einer oder beide Spieler nicht gefunden.')
 
 if __name__ == '__main__':
-    main()
+   main()
