@@ -1,203 +1,149 @@
+#streamlit\pages\2_🌍_Spieler.py
+
 import streamlit as st
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
-from utils.ORM_model import DimPlayer, FactAppearance, DimClub, DimGame
-import pandas as pd
-import numpy as np
-import plotly.graph_objs as go
+from utils.ORM_model import DimPlayer, DimClub
+from lib.Spieler.lib_spieler import get_player_stats, display_player_info, player_age, compare_players
+
 
 DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 session = Session()
 
-def player_age(date_of_birth):
-    today = pd.to_datetime('today')
-    return today.year - pd.to_datetime(date_of_birth).year
-
-def normalize_metric(value, min_value=None, max_value=None):
-    if min_value is None:
-        min_value = 0
-    if max_value is None:
-        max_value = 1
-    return (value - min_value) / (max_value - min_value) if value is not None else None
-
-def calculate_weighted_stat(appearances, stat_name, weight_factor):
-    total_minutes_played = sum(a.minutes_played or 0 for a in appearances if a.minutes_played is not None)
-    weighted_sum = sum(((getattr(a, stat_name, 0) or 0) * (a.minutes_played or 0) / 90) for a in appearances if a.minutes_played is not None and getattr(a, stat_name, None) is not None)
-    return weighted_sum / (total_minutes_played / 90) * weight_factor if total_minutes_played else 0
-
-def create_radar_chart(metrics, metric_labels, player_name):
-    radar_data = [go.Scatterpolar(
-        r=metrics,
-        theta=metric_labels,
-        fill='toself',
-        name=player_name
-    )]
-
-    radar_layout = go.Layout(
-        polar=dict(
-            radialaxis=dict(visible=True, range=[0, 1])
-        ),
-        showlegend=False
-    )
-
-    radar_fig = go.Figure(data=radar_data, layout=radar_layout)
-    return radar_fig
-
-def get_player_stats(player_id):
-    appearances = session.query(FactAppearance).filter(FactAppearance.player_id == player_id).all()
-    total_minutes_played = session.query(func.sum(FactAppearance.minutes_played)).filter(FactAppearance.player_id == player_id, FactAppearance.goals2 != None).scalar()
-    total_stats = session.query(func.sum(FactAppearance.goals2), func.sum(FactAppearance.assists), func.sum(FactAppearance.yellow_card), func.sum(FactAppearance.red_card)).filter(FactAppearance.player_id == player_id).first()
-
-    # Gewichtete Statistiken berechnen
-    goal_contribution = normalize_metric(calculate_weighted_stat(appearances, 'goals2', 1.0) + calculate_weighted_stat(appearances, 'assists', 0.5))
-    defensive_contribution = normalize_metric(calculate_weighted_stat(appearances, 'number_of_tackles', 0.5) + calculate_weighted_stat(appearances, 'blocks', 0.5))
-    passing_efficiency = normalize_metric(calculate_weighted_stat(appearances, 'successful_passes', 1.0) / (calculate_weighted_stat(appearances, 'attempted_passes', 1.0) or 1))
-    dribbling_ability = normalize_metric(calculate_weighted_stat(appearances, 'successful_dribbling', 1.0) / (calculate_weighted_stat(appearances, 'attempted_dribbles', 1.0) or 1))
-    shot_efficiency = normalize_metric(calculate_weighted_stat(appearances, 'shots_on_target', 1.0) / (calculate_weighted_stat(appearances, 'shots', 1.0) or 1))
-    discipline = normalize_metric(1 - (calculate_weighted_stat(appearances, 'yellow_card', 5.0) + calculate_weighted_stat(appearances, 'red_card', 10.0)))
-    involvement = normalize_metric(calculate_weighted_stat(appearances, 'touches', 1) + calculate_weighted_stat(appearances, 'carries', 1), 0, 200)
-    penalty_contribution = normalize_metric(calculate_weighted_stat(appearances, 'converted_penalties', 1.0) / (calculate_weighted_stat(appearances, 'attempted_penalty', 1.0) or 1))
-
-    return {
-        'total_minutes_played': total_minutes_played,
-        'total_stats': total_stats,
-        'goal_contribution': goal_contribution,
-        'defensive_contribution': defensive_contribution,
-        'passing_efficiency': passing_efficiency,
-        'dribbling_ability': dribbling_ability,
-        'shot_efficiency': shot_efficiency,
-        'discipline': discipline,
-        'involvement': involvement,
-        'penalty_contribution': penalty_contribution
-    }
-
-def create_playing_time_pie_chart(player_id):
-    total_minutes_played = session.query(func.sum(FactAppearance.minutes_played)).filter(
-        FactAppearance.player_id == player_id,
-        FactAppearance.player_current_club_id == FactAppearance.player_club_id,
-        FactAppearance.minutes_played.isnot(None)
-    ).scalar()
-
-    if total_minutes_played is None:
-        return None
-
-    player = session.query(DimPlayer).filter(DimPlayer.player_id == player_id).first()
-    current_club_id = player.current_club_id
-
-    appearances = session.query(FactAppearance).filter(
-        FactAppearance.player_id == player_id,
-        FactAppearance.player_current_club_id == FactAppearance.player_club_id,
-        FactAppearance.minutes_played.isnot(None)
-    ).all()
-    games_played = set(a.game_id for a in appearances)
-
-    current_season = None
-    if appearances:
-        current_season = appearances[0].game.season if appearances[0].game else None
-
-    club_games = session.query(DimGame.game_id).filter(
-        DimGame.home_club_id == current_club_id,
-        DimGame.season == current_season if current_season is not None else True
-    ).union(
-        session.query(DimGame.game_id).filter(
-            DimGame.away_club_id == current_club_id,
-            DimGame.season == current_season if current_season is not None else True
-        )
-    ).all()
-
-    games_not_played = set(game_id for game_id, in club_games) - games_played
-
-    start_minutes = sum(a.minutes_played for a in appearances if a.minutes_played >= 90)
-    sub_minutes = sum(a.minutes_played for a in appearances if a.minutes_played < 90 and a.minutes_played > 0)
-    not_played_minutes = sum(90 for game_id in games_not_played)
-
-    labels = ['Startelf', 'Eingewechselt', 'Nicht gespielt']
-    values = [start_minutes, sub_minutes, not_played_minutes]
-
-    fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.3)])
-    fig.update_layout(title_text='Spielzeit Aufteilung')
-
-    return fig
-
-def display_player_info(player, player_stats):
-    st.header(f'Spieleranalyse für {player.name}')
-    st.subheader('Spielerinformationen')
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric('Position', player.position)
-    col2.metric('Aktueller Verein', player.current_club_name)
-    col3.metric('Nationalität', player.country_of_citizenship)
-    col4.metric('Alter', player_age(player.date_of_birth))
-
-    st.subheader('Gesamtstatistiken')
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric('Tore', int(player_stats['total_stats'][0]) if player_stats['total_stats'][0] else 0)
-    col2.metric('Vorlagen', int(player_stats['total_stats'][1]) if player_stats['total_stats'][1] else 0)
-    col3.metric('Gelbe Karten', int(player_stats['total_stats'][2]) if player_stats['total_stats'][2] else 0)
-    col4.metric('Rote Karten', int(player_stats['total_stats'][3]) if player_stats['total_stats'][3] else 0)
-    col5.metric('Spielminuten', int(player_stats['total_minutes_played']) if player_stats['total_minutes_played'] else 0)
-
-    st.subheader('Metriken')
-    metric_labels = ['Goal Contribution', 'Defensive Contribution', 'Passing Efficiency', 'Dribbling Ability', 'Shot Efficiency', 'Discipline', 'Involvement', 'Penalty Contribution']
-    metrics = [player_stats['goal_contribution'], player_stats['defensive_contribution'], player_stats['passing_efficiency'], player_stats['dribbling_ability'], player_stats['shot_efficiency'], player_stats['discipline'], player_stats['involvement'], player_stats['penalty_contribution']]
-    metric_descriptions = [
-        "Torbeteiligung (Tore + 0,5 x Vorlagen) pro 90 Minuten.",
-        "Defensiver Beitrag (Tackles + 0,5 x Blocks) pro 90 Minuten.",
-        "Erfolgreiche Pässe im Verhältnis zu allen gespielten Pässen.",
-        "Erfolgreiche Dribblings im Verhältnis zu allen Dribbling-Versuchen.",
-        "Schüsse aufs Tor im Verhältnis zu allen Schüssen.",
-        "Disziplin (1 - (5 x Gelbe Karten + 15 x Rote Karten) pro 90 Minuten).",
-        "Ballkontakte pro 90 Minuten.",
-        "Erfolgreiche Elfmeter im Verhältnis zu allen geschossenen Elfmetern."
-    ]
-    for i in range(0, len(metrics), 4):
-        cols = st.columns(4)
-        for col, metric, label, description in zip(cols, metrics[i:i+4], metric_labels[i:i+4], metric_descriptions[i:i+4]):
-            if metric is not None:
-                col.metric(label, f"{metric:.2f}", description, delta_color="off")
-            else:
-                col.metric(label, "-", description, delta_color="off")
-
-    # Radar-Diagramm erstellen
-    radar_fig = create_radar_chart(metrics, metric_labels, player.name)
-    st.subheader('Radar-Diagramm')
-    st.plotly_chart(radar_fig)
-    
-    playing_time_chart = create_playing_time_pie_chart(player.player_id)
-    if playing_time_chart:
-        st.subheader('Spielzeit Aufteilung')
-        st.plotly_chart(playing_time_chart)
-
-
-
-
+            
 def main():
-   st.set_page_config(page_title='Fußballspieler-Analyse', layout='wide')
-   st.title("Spielerauswertung")
-   select_col, _, images_col = st.columns([2, 2, 1.5])
+    st.set_page_config(page_title='Fußballspieler-Analyse', layout='wide')
+    st.title("Spielerauswertung")
+    
+    tab1, tab2 = st.tabs(["Einzelspieleranalyse", "Spielervergleich"])
+    
+    with tab1:
+        select_col, _, images_col = st.columns([2, 2, 1.5])
+        
+        with select_col:
+            players = session.query(DimPlayer).all()
+            selected_player_name = st.selectbox("Wähle einen Spieler", [player.name for player in players])
+        
+        selected_player = session.query(DimPlayer).filter(DimPlayer.name == selected_player_name).first()
+        
+        if selected_player:
+            current_club = session.query(DimClub).filter(DimClub.club_id == selected_player.current_club_id).first()
+            
+            with images_col:
+                player_col, club_col = st.columns(2)
+                player_col.image(selected_player.image_url, width=100)
+                if current_club:
+                    club_logo_url = f"https://tmssl.akamaized.net/images/wappen/head/{current_club.club_id}.png?lm=1656580823"
+                    club_col.image(club_logo_url, width=100)
+            
+            player_stats = get_player_stats(selected_player.player_id)
+            display_player_info(selected_player, player_stats)
+        
+        else:
+            st.warning('Spieler nicht gefunden.')
 
-   with select_col:
-       players = session.query(DimPlayer).all()
-       selected_player_name = st.selectbox("Wähle einen Spieler", [player.name for player in players])
+    with tab2:
+        st.subheader('Spielervergleich (H2H)')
+        player1_col, player2_col = st.columns([3, 3])
+        players = session.query(DimPlayer).all()
 
-   selected_player = session.query(DimPlayer).filter(DimPlayer.name == selected_player_name).first()
+        with player1_col:
+            player1_image_col, player1_club_col, empty_col, player1_name_col = st.columns([1, 1, 1, 3])
+            player1_name = player1_name_col.selectbox("Wähle Spieler 1", [player.name for player in players], key="player1")
+            player1 = session.query(DimPlayer).filter(DimPlayer.name == player1_name).first()
+            if player1:
+                player1_image_col.image(player1.image_url, width=75)
+                player1_club = session.query(DimClub).filter(DimClub.club_id == player1.current_club_id).first()
+                if player1_club:
+                    club1_logo_url = f"https://tmssl.akamaized.net/images/wappen/head/{player1_club.club_id}.png?lm=1656580823"
+                    player1_club_col.image(club1_logo_url, width=75)
+                
+                player1_info_col1, player1_info_col2 = st.columns(2)
+                player1_info_col1.metric('Alter', player_age(player1.date_of_birth))
+                player1_info_col2.metric('Position', player1.position)
 
-   if selected_player:
-       current_club = session.query(DimClub).filter(DimClub.club_id == selected_player.current_club_id).first()
+        with player2_col:
+            player2_name_col, empty_col, player2_image_col, player2_club_col = st.columns([3, 1, 1, 1])
+            player2_name = player2_name_col.selectbox("Wähle Spieler 2", [player.name for player in players], key="player2")
+            player2 = session.query(DimPlayer).filter(DimPlayer.name == player2_name).first()
+            if player2:
+                player2_image_col.image(player2.image_url, width=75)
+                player2_club = session.query(DimClub).filter(DimClub.club_id == player2.current_club_id).first()
+                if player2_club:
+                    club2_logo_url = f"https://tmssl.akamaized.net/images/wappen/head/{player2_club.club_id}.png?lm=1656580823"
+                    player2_club_col.image(club2_logo_url, width=75)
+                
+                player2_info_col1, player2_info_col2 = st.columns(2)
+                player2_info_col1.metric('Alter', player_age(player2.date_of_birth))
+                player2_info_col2.metric('Position', player2.position)
 
-       with images_col:
-           player_col, club_col = st.columns(2)
-           player_col.image(selected_player.image_url, width=100)
-           if current_club:
-               club_logo_url = f"https://tmssl.akamaized.net/images/wappen/head/{current_club.club_id}.png?lm=1656580823"
-               club_col.image(club_logo_url, width=100)
+        if player1 and player2:
+            _, chart_col, _ = st.columns([1.75, 8, 1])  # Hier wurde die Zahl auf 8 geändert
+            with chart_col:
+                comparison_fig, player1_stats, player2_stats = compare_players(player1.player_id, player2.player_id)
+                st.plotly_chart(comparison_fig, use_container_width=True)
 
-       player_stats = get_player_stats(selected_player.player_id)
-       display_player_info(selected_player, player_stats)
+            metric_labels = ['Goal Contribution', 'Defensive Contribution', 'Passing Efficiency', 'Dribbling Ability', 'Shot Efficiency', 'Discipline', 'Involvement', 'Penalty Contribution']
 
-   else:
-       st.warning('Spieler nicht gefunden.')
+            player1_name_col, metric_cols, player2_name_col = st.columns([2, 4, 2])
+            player1_name_col.markdown(f"<h3 style='text-align: center;'>{player1.name}</h3>", unsafe_allow_html=True)
+            player2_name_col.markdown(f"<h3 style='text-align: center;'>{player2.name}</h3>", unsafe_allow_html=True)
+
+            for metric, player1_value, player2_value in zip(metric_labels, player1_stats, player2_stats):
+                player1_metric_col, metric_label_col, player2_metric_col = metric_cols.columns([2, 2, 2])
+
+                if player1_value is not None and player2_value is not None:
+                    if player1_value > player2_value:
+                        player1_metric_col.markdown(f"""
+                        <div style="background-color: #d4edda; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #155724; font-size: 20px; font-weight: bold; margin: 0;">{player1_value:.2f} <span style="color: green;">+{player1_value - player2_value:.2f}</span></p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        player2_metric_col.markdown(f"""
+                        <div style="background-color: #f8d7da; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #721c24; font-size: 20px; font-weight: bold; margin: 0;">{player2_value:.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    elif player2_value > player1_value:
+                        player1_metric_col.markdown(f"""
+                        <div style="background-color: #f8d7da; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #721c24; font-size: 20px; font-weight: bold; margin: 0;">{player1_value:.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        player2_metric_col.markdown(f"""
+                        <div style="background-color: #d4edda; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #155724; font-size: 20px; font-weight: bold; margin: 0;">{player2_value:.2f} <span style="color: green;">+{player2_value - player1_value:.2f}</span></p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        player1_metric_col.markdown(f"""
+                        <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">{player1_value:.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        player2_metric_col.markdown(f"""
+                        <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                            <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">{player2_value:.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    player1_metric_col.markdown(f"""
+                    <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                        <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">-</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    player2_metric_col.markdown(f"""
+                    <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                        <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">-</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                metric_label_col.markdown(f"<p style='text-align: center; font-weight: bold;'>{metric}</p>", unsafe_allow_html=True)
+
+        else:
+            st.warning('Einer oder beide Spieler nicht gefunden.')
 
 if __name__ == '__main__':
    main()
