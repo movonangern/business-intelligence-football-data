@@ -6,3 +6,4 @@ football_db_dump.sql
 __pycache__
 db/
 streamlit/fussballspieler_daten.csv
+.DS_Store

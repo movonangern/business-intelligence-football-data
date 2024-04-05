@@ -7,13 +7,19 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import Chroma
 from langchain.chains import ConversationalRetrievalChain
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts.chat import (
+    ChatPromptTemplate,
+    HumanMessagePromptTemplate,
+    SystemMessagePromptTemplate,
+)
 import os
 
 st.set_page_config(page_title="Fußball-Chatbot", page_icon="⚽️")
 st.write("# Willkommen beim Fußball-Chatbot! ⚽️")
 
 # Hier wird der openai_api_key als Parameter übergeben
-openai_api_key = "XXX"
+openai_api_key = "xxxxx"
 embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
 
 # Persistente Vektordatenbank mit Indizierung
@@ -67,42 +73,53 @@ with tab1:
         vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
         st.write(f"Vektordatenbank erfolgreich geladen.")
 
+        # Definition der Rolle des Chatbots
+        template = (
+            "Du bist ein hilfsbereiter Fußball-Experte, der detaillierte Informationen zu Fußballspielern liefert "
+            "und bei Fragen, die nicht direkt beantwortet werden können, alternative Vorschläge macht."
+        )
+        system_message_prompt = SystemMessagePromptTemplate.from_template(template)
+        human_template = "{text}"
+        human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
+
         # Erstellung des ConversationalRetrievalChain-Objekts mit angepassten Parametern
         st.write("Erstelle das ConversationalRetrievalChain-Objekt...")
         qa = ConversationalRetrievalChain.from_llm(
-            llm=ChatOpenAI(openai_api_key=openai_api_key, model_name="gpt-3.5-turbo", temperature=1, max_tokens=512),
+            llm=ChatOpenAI(openai_api_key=openai_api_key, model_name="gpt-4", temperature=1, max_tokens=512),
             retriever=vectorstore.as_retriever(search_kwargs={"k": 3}),
         )
+        chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_message_prompt])
         st.session_state.qa = qa
         st.session_state.chat_history = []
         st.write("ConversationalRetrievalChain-Objekt erfolgreich erstellt.")
 
 with tab2:
-    st.header("Fußball-Chatbot")
-
     if 'qa' not in st.session_state:
         st.warning("Bitte laden Sie zuerst die Vektordatenbank im Tab 'Vektordatenbank'.")
     else:
-        user_input = st.text_input("Stellen Sie eine Frage zu einem Fußballspieler:")
-        if user_input:
-            st.write(f"Frage: {user_input}")
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
 
-            # Fortschrittsanzeige für die Antwortgenerierung
-            progress_text = "Antwort wird generiert. Bitte warten..."
-            my_bar = st.progress(0, text=progress_text)
+        user_input = st.text_input("Stellen Sie eine Frage zu einem Fußballspieler:", key="input")
+        if user_input:
+            st.session_state.messages.append({"role": "user", "content": user_input})
 
             qa = st.session_state.qa
-            chat_history = st.session_state.chat_history
-            
-            # Antwort generieren
+            chat_history = [
+                (message["content"], message["content"])
+                for message in st.session_state.messages
+                if message["role"] in ["user", "assistant"]
+            ]
+
             result = qa({"question": user_input, "chat_history": chat_history})
             response = result['answer']
-            
-            # Chat-Verlauf aktualisieren
-            chat_history.append((user_input, response))
-            st.session_state.chat_history = chat_history
 
-            # Fortschrittsanzeige auf 100% setzen
-            my_bar.progress(1.0, text="Antwort erfolgreich generiert.")
+            st.session_state.messages.append({"role": "assistant", "content": response})
 
-            st.write(f"Antwort: {response}")
+        chat_container = st.container()
+        with chat_container:
+            for message in st.session_state.messages:
+                if message["role"] == "user":
+                    st.chat_message("user", avatar="🧑‍💻").write(message["content"])
+                else:
+                    st.chat_message("assistant", avatar="⚽️").write(message["content"])

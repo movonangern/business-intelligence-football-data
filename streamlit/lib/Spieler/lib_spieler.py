@@ -82,9 +82,6 @@ def create_playing_time_pie_chart(player_id):
         FactAppearance.minutes_played.isnot(None)
     ).scalar()
 
-    if total_minutes_played is None:
-        return None
-
     player = session.query(DimPlayer).filter(DimPlayer.player_id == player_id).first()
     current_club_id = player.current_club_id
 
@@ -118,19 +115,28 @@ def create_playing_time_pie_chart(player_id):
     labels = ['Startelf', 'Eingewechselt', 'Nicht gespielt']
     values = [start_minutes, sub_minutes, not_played_minutes]
 
+    # Wenn keine Daten vorhanden sind, werden Standardwerte verwendet
+    if not values or sum(values) == 0:
+        values = [33.3, 33.3, 33.3]
+
     fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.3)])
-    fig.update_layout(title_text='Spielzeit Aufteilung')
+    fig.update_layout(showlegend=True)  # Legende anzeigen
 
     return fig
 
 def display_player_info(player, player_stats):
     st.header(f'Spieleranalyse für {player.name}')
     st.subheader('Spielerinformationen')
-    col1, col2, col3, col4 = st.columns(4)
+
+    col1, col2, col3 = st.columns(3)
     col1.metric('Position', player.position)
     col2.metric('Aktueller Verein', player.current_club_name)
     col3.metric('Nationalität', player.country_of_citizenship)
+
+    col4, col5, col6 = st.columns(3)
     col4.metric('Alter', player_age(player.date_of_birth))
+    col5.metric('Marktwert', f"{player.market_value_in_eur:,.0f} €")
+    col6.metric('Berater', player.agent_name)
 
     st.subheader('Gesamtstatistiken')
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -160,16 +166,22 @@ def display_player_info(player, player_stats):
                 col.metric(label, f"{metric:.2f}", description, delta_color="off")
             else:
                 col.metric(label, "-", description, delta_color="off")
-
-    # Radar-Diagramm erstellen
-    radar_fig = create_radar_chart(metrics, metric_labels, player.name)
-    st.subheader('Radar-Diagramm')
-    st.plotly_chart(radar_fig)
     
-    playing_time_chart = create_playing_time_pie_chart(player.player_id)
-    if playing_time_chart:
-        st.subheader('Spielzeit Aufteilung')
-        st.plotly_chart(playing_time_chart)
+    empty_col = st.columns(1)
+    
+    # Radar-Diagramm und Spielzeit-Aufteilung in zwei Spalten
+    radar_col, pie_col = st.columns(2)
+
+    with radar_col:
+        radar_fig = create_radar_chart(metrics, metric_labels, player.name)
+        st.subheader('Radar-Diagramm')
+        st.plotly_chart(radar_fig, use_container_width=True)
+
+    with pie_col:
+        playing_time_chart = create_playing_time_pie_chart(player.player_id)
+        if playing_time_chart:
+            st.subheader('Spielzeit Aufteilung')
+            st.plotly_chart(playing_time_chart, use_container_width=True)
 
 def compare_players(player1_id, player2_id):
     player1 = session.query(DimPlayer).filter(DimPlayer.player_id == player1_id).first()
