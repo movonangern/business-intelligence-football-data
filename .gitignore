@@ -5,4 +5,4 @@ notebooks/OLTP/football.db
 football_db_dump.sql
 __pycache__
 db/
-streamlit/fussballspieler_daten.csv/
+streamlit/fussballspieler_daten.csv
