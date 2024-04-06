@@ -5,7 +5,11 @@ from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 from utils.ORM_model import DimPlayer, FactAppearance, DimGame
 import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import plotly.graph_objs as go
+import numpy as np
 
 DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
 engine = create_engine(DATABASE_URL)
@@ -22,7 +26,12 @@ def normalize_metric(value, min_value=None, max_value=None):
         min_value = 0
     if max_value is None:
         max_value = 1
-    return (value - min_value) / (max_value - min_value) if value is not None else None
+
+    if value is None:
+        return None
+
+    value = max(min(value, max_value), min_value)
+    return (value - min_value) / (max_value - min_value)
 
 def calculate_weighted_stat(appearances, stat_name, weight_factor):
     total_minutes_played = sum(a.minutes_played or 0 for a in appearances if a.minutes_played is not None)
@@ -47,6 +56,129 @@ def create_radar_chart(metrics, metric_labels, player_name):
     radar_fig = go.Figure(data=radar_data, layout=radar_layout)
     return radar_fig
 
+def player_market_value_prediction(player_id):
+    # Daten aus der Datenbank abrufen
+    player = session.query(DimPlayer).filter(DimPlayer.player_id == player_id).first()
+    appearances = session.query(FactAppearance).filter(FactAppearance.player_id == player_id).all()
+
+    if not appearances:
+        empty_fig = go.Figure()
+        empty_fig.add_annotation(text="Nicht genügend Daten für die Marktwertvorhersage", xref="paper", yref="paper", showarrow=False, font=dict(size=20))
+        return None, empty_fig, None, None, None, None, None
+
+    # Daten in ein DataFrame umwandeln
+    data = {
+        'market_value': [player.market_value_in_eur],
+        'age': [player_age(player.date_of_birth)],
+        'contract_days_remaining': [(pd.to_datetime(player.contract_expiration_date) - pd.Timestamp.now()).days if player.contract_expiration_date else None],
+        'assists': [sum(a.assists or 0 for a in appearances)],
+        'minutes_played': [sum(a.minutes_played or 0 for a in appearances)],
+        'goals2': [sum(a.goals2 or 0 for a in appearances)],
+        'assets': [sum(a.assets or 0 for a in appearances)],
+        'converted_penalties': [sum(a.converted_penalties or 0 for a in appearances)],
+        'attempted_penalty': [sum(a.attempted_penalty or 0 for a in appearances)],
+        'shots': [sum(a.shots or 0 for a in appearances)],
+        'shots_on_target': [sum(a.shots_on_target or 0 for a in appearances)],
+        'yellow_card': [sum(a.yellow_card or 0 for a in appearances)],
+        'red_card': [sum(a.red_card or 0 for a in appearances)],
+        'touches': [sum(a.touches or 0 for a in appearances)],
+        'number_of_tackles': [sum(a.number_of_tackles or 0 for a in appearances)],
+        'ball_win': [sum(a.ball_win or 0 for a in appearances)],
+        'blocks': [sum(a.blocks or 0 for a in appearances)],
+        'expected_goals': [sum(a.expected_goals or 0 for a in appearances)],
+        'expected_goals_without_penalties': [sum(a.expected_goals_without_penalties or 0 for a in appearances)],
+        'expected_goal_assists': [sum(a.expected_goal_assists or 0 for a in appearances)],
+        'shot_attempt': [sum(a.shot_attempt or 0 for a in appearances)],
+        'goal_assists': [sum(a.goal_assists or 0 for a in appearances)],
+        'successful_passes': [sum(a.successful_passes or 0 for a in appearances)],
+        'attempted_passes': [sum(a.attempted_passes or 0 for a in appearances)],
+        'pass_accuracy_in_percent': [sum(a.pass_accuracy_in_percent or 0 for a in appearances)],
+        'progressive_passes': [sum(a.progressive_passes or 0 for a in appearances)],
+        'carries': [sum(a.carries or 0 for a in appearances)],
+        'progressive_runs': [sum(a.progressive_runs or 0 for a in appearances)],
+        'attempted_dribbles': [sum(a.attempted_dribbles or 0 for a in appearances)],
+        'successful_dribbling': [sum(a.successful_dribbling or 0 for a in appearances)]
+    }
+    player_df = pd.DataFrame(data).dropna()
+
+    # Alle Spieler aus der Datenbank abrufen, die auch einen Eintrag in den FactAppearance haben
+    all_players = session.query(DimPlayer).join(FactAppearance).distinct(DimPlayer.player_id).all()
+    all_player_data = []
+
+    for p in all_players:
+        p_appearances = session.query(FactAppearance).filter(FactAppearance.player_id == p.player_id).all()
+        if p_appearances:
+            p_data = {
+                'market_value': p.market_value_in_eur,
+                'age': player_age(p.date_of_birth),
+                'contract_days_remaining': (pd.to_datetime(p.contract_expiration_date) - pd.Timestamp.now()).days if p.contract_expiration_date else None,
+                'assists': sum(a.assists or 0 for a in p_appearances),
+                'minutes_played': sum(a.minutes_played or 0 for a in p_appearances),
+                'goals2': sum(a.goals2 or 0 for a in p_appearances),
+                'assets': sum(a.assets or 0 for a in p_appearances),
+                'converted_penalties': sum(a.converted_penalties or 0 for a in p_appearances),
+                'attempted_penalty': sum(a.attempted_penalty or 0 for a in p_appearances),
+                'shots': sum(a.shots or 0 for a in p_appearances),
+                'shots_on_target': sum(a.shots_on_target or 0 for a in p_appearances),
+                'yellow_card': sum(a.yellow_card or 0 for a in p_appearances),
+                'red_card': sum(a.red_card or 0 for a in p_appearances),
+                'touches': sum(a.touches or 0 for a in p_appearances),
+                'number_of_tackles': sum(a.number_of_tackles or 0 for a in p_appearances),
+                'ball_win': sum(a.ball_win or 0 for a in p_appearances),
+                'blocks': sum(a.blocks or 0 for a in p_appearances),
+                'expected_goals': sum(a.expected_goals or 0 for a in p_appearances),
+                'expected_goals_without_penalties': sum(a.expected_goals_without_penalties or 0 for a in p_appearances),
+                'expected_goal_assists': sum(a.expected_goal_assists or 0 for a in p_appearances),
+                'shot_attempt': sum(a.shot_attempt or 0 for a in p_appearances),
+                'goal_assists': sum(a.goal_assists or 0 for a in p_appearances),
+                'successful_passes': sum(a.successful_passes or 0 for a in p_appearances),
+                'attempted_passes': sum(a.attempted_passes or 0 for a in p_appearances),
+                'pass_accuracy_in_percent': sum(a.pass_accuracy_in_percent or 0 for a in p_appearances),
+                'progressive_passes': sum(a.progressive_passes or 0 for a in p_appearances),
+                'carries': sum(a.carries or 0 for a in p_appearances),
+                'progressive_runs': sum(a.progressive_runs or 0 for a in p_appearances),
+                'attempted_dribbles': sum(a.attempted_dribbles or 0 for a in p_appearances),
+                'successful_dribbling': sum(a.successful_dribbling or 0 for a in p_appearances)
+            }
+            all_player_data.append(p_data)
+
+    all_player_df = pd.DataFrame(all_player_data).dropna()
+
+    # DataFrame bereinigen (NaN-Werte entfernen)
+    all_player_df = all_player_df.dropna()
+
+    # Modell trainieren
+    X = all_player_df.drop('market_value', axis=1)
+    y = all_player_df['market_value']
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+
+    # Marktwert des Spielers vorhersagen
+    player_stats = player_df.drop('market_value', axis=1)
+    predicted_market_value = model.predict(player_stats)[0]
+
+    # Metriken zur Bewertung des Modells berechnen
+    y_pred = model.predict(X_test)
+    r2 = r2_score(y_test, y_pred)
+    mae = mean_absolute_error(y_test, y_pred)
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+
+    # Feature Importance berechnen
+    importances = model.feature_importances_
+    feature_importances = pd.Series(importances, index=X.columns).sort_values(ascending=False)
+
+    # Ergebnisse visualisieren
+    fig = go.Figure(data=[
+        go.Bar(name='Tatsächlicher Marktwert', x=['Marktwert'], y=[player.market_value_in_eur]),
+        go.Bar(name='Vorhergesagter Marktwert', x=['Marktwert'], y=[predicted_market_value])
+    ])
+    fig.update_layout(title=f'Marktwertvorhersage für {player.name}', xaxis_title='', yaxis_title='Marktwert (€)')
+
+    return predicted_market_value, fig, r2, mae, mse, rmse, feature_importances
+
 def get_player_stats(player_id):
     appearances = session.query(FactAppearance).filter(FactAppearance.player_id == player_id).all()
     total_minutes_played = session.query(func.sum(FactAppearance.minutes_played)).filter(FactAppearance.player_id == player_id, FactAppearance.goals2 != None).scalar()
@@ -60,7 +192,9 @@ def get_player_stats(player_id):
     shot_efficiency = normalize_metric(calculate_weighted_stat(appearances, 'shots_on_target', 1.0) / (calculate_weighted_stat(appearances, 'shots', 1.0) or 1))
     discipline = normalize_metric(1 - (calculate_weighted_stat(appearances, 'yellow_card', 5.0) + calculate_weighted_stat(appearances, 'red_card', 10.0)))
     involvement = normalize_metric(calculate_weighted_stat(appearances, 'touches', 1) + calculate_weighted_stat(appearances, 'carries', 1), 0, 200)
-    penalty_contribution = normalize_metric(calculate_weighted_stat(appearances, 'converted_penalties', 1.0) / (calculate_weighted_stat(appearances, 'attempted_penalty', 1.0) or 1))
+
+    # Berechnung des Overall Ratings
+    overall_rating = (goal_contribution + defensive_contribution + passing_efficiency + dribbling_ability + shot_efficiency + discipline + involvement) / 7
 
     return {
         'total_minutes_played': total_minutes_played,
@@ -72,7 +206,7 @@ def get_player_stats(player_id):
         'shot_efficiency': shot_efficiency,
         'discipline': discipline,
         'involvement': involvement,
-        'penalty_contribution': penalty_contribution
+        'overall_rating': overall_rating
     }
 
 def create_playing_time_pie_chart(player_id):
@@ -148,24 +282,24 @@ def display_player_info(player, player_stats):
 
     st.subheader('Metriken')
     metric_labels = ['Goal Contribution', 'Defensive Contribution', 'Passing Efficiency', 'Dribbling Ability', 'Shot Efficiency', 'Discipline', 'Involvement', 'Penalty Contribution']
-    metrics = [player_stats['goal_contribution'], player_stats['defensive_contribution'], player_stats['passing_efficiency'], player_stats['dribbling_ability'], player_stats['shot_efficiency'], player_stats['discipline'], player_stats['involvement'], player_stats['penalty_contribution']]
+    metrics = [player_stats['goal_contribution'], player_stats['defensive_contribution'], player_stats['passing_efficiency'], player_stats['dribbling_ability'], player_stats['shot_efficiency'], player_stats['discipline'], player_stats['involvement'], player_stats['overall_rating']]
     metric_descriptions = [
-        "Torbeteiligung (Tore + 0,5 x Vorlagen) pro 90 Minuten.",
-        "Defensiver Beitrag (Tackles + 0,5 x Blocks) pro 90 Minuten.",
-        "Erfolgreiche Pässe im Verhältnis zu allen gespielten Pässen.",
-        "Erfolgreiche Dribblings im Verhältnis zu allen Dribbling-Versuchen.",
-        "Schüsse aufs Tor im Verhältnis zu allen Schüssen.",
-        "Disziplin (1 - (5 x Gelbe Karten + 15 x Rote Karten) pro 90 Minuten).",
-        "Ballkontakte pro 90 Minuten.",
-        "Erfolgreiche Elfmeter im Verhältnis zu allen geschossenen Elfmetern."
+        "Tore + 0,5 x Vorlagen pro 90 Minuten",
+        "Tackles + 0,5 x Blocks pro 90 Minuten",
+        "Erfolgreiche Pässe im Verhältnis zu allen gespielten Pässen",
+        "Erfolgreiche Dribblings im Verhältnis zu allen Dribbling-Versuchen",
+        "Schüsse aufs Tor im Verhältnis zu allen Schüssen",
+        "1 - (5 x Gelbe Karten + 15 x Rote Karten) pro 90 Minuten",
+        "Ballkontakte + Ballführungen pro 90 Minuten",
+        "Durchschnitt aller Metriken"
     ]
     for i in range(0, len(metrics), 4):
         cols = st.columns(4)
         for col, metric, label, description in zip(cols, metrics[i:i+4], metric_labels[i:i+4], metric_descriptions[i:i+4]):
             if metric is not None:
-                col.metric(label, f"{metric:.2f}", description, delta_color="off")
+                col.metric(label, f"{metric:.2f}", help=description)
             else:
-                col.metric(label, "-", description, delta_color="off")
+                col.metric(label, "-", help=description)
     
     empty_col = st.columns(1)
     
@@ -191,8 +325,8 @@ def compare_players(player1_id, player2_id):
     player2_stats = get_player_stats(player2_id)
 
     metric_labels = ['Goal Contribution', 'Defensive Contribution', 'Passing Efficiency', 'Dribbling Ability', 'Shot Efficiency', 'Discipline', 'Involvement', 'Penalty Contribution']
-    player1_metrics = [player1_stats['goal_contribution'], player1_stats['defensive_contribution'], player1_stats['passing_efficiency'], player1_stats['dribbling_ability'], player1_stats['shot_efficiency'], player1_stats['discipline'], player1_stats['involvement'], player1_stats['penalty_contribution']]
-    player2_metrics = [player2_stats['goal_contribution'], player2_stats['defensive_contribution'], player2_stats['passing_efficiency'], player2_stats['dribbling_ability'], player2_stats['shot_efficiency'], player2_stats['discipline'], player2_stats['involvement'], player2_stats['penalty_contribution']]
+    player1_metrics = [player1_stats['goal_contribution'], player1_stats['defensive_contribution'], player1_stats['passing_efficiency'], player1_stats['dribbling_ability'], player1_stats['shot_efficiency'], player1_stats['discipline'], player1_stats['involvement'], player1_stats['overall_rating']]
+    player2_metrics = [player2_stats['goal_contribution'], player2_stats['defensive_contribution'], player2_stats['passing_efficiency'], player2_stats['dribbling_ability'], player2_stats['shot_efficiency'], player2_stats['discipline'], player2_stats['involvement'], player2_stats['overall_rating']]
 
     radar_fig = go.Figure()
     radar_fig.add_trace(go.Scatterpolar(r=player1_metrics, theta=metric_labels, fill='toself', name=player1.name))

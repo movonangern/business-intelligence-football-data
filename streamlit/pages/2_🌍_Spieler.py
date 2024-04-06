@@ -4,7 +4,7 @@ import streamlit as st
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 from utils.ORM_model import DimPlayer, DimClub
-from lib.Spieler.lib_spieler import get_player_stats, display_player_info, player_age, compare_players
+from lib.Spieler.lib_spieler import get_player_stats, display_player_info, player_age, compare_players, player_market_value_prediction
 
 
 DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
@@ -41,6 +41,25 @@ def main():
             player_stats = get_player_stats(selected_player.player_id)
             display_player_info(selected_player, player_stats)
         
+            predicted_market_value, fig, r2, mae, mse, rmse, feature_importances = player_market_value_prediction(selected_player.player_id)
+
+            if predicted_market_value is not None:
+                st.subheader('Marktwertvorhersage')
+                col1, col2 = st.columns([2, 1])
+
+                with col1:
+                    st.plotly_chart(fig, use_container_width=True)
+
+                with col2:
+                    st.write(f"### Vorhergesagter Marktwert: {predicted_market_value:,.0f} €")
+                    st.write(f"R²-Score: {r2:.2f}")
+                    st.write(f"Mittlerer absoluter Fehler (MAE): {mae:,.0f} €")
+                    st.write(f"Mittlerer quadratischer Fehler (MSE): {mse:,.0f} €")
+                    st.write(f"Wurzel aus dem mittleren quadratischen Fehler (RMSE): {rmse:,.0f} €")
+
+            else:
+                st.warning('Für diesen Spieler ist keine Marktwertvorhersage möglich, da keine Leistungsdaten vorliegen.')
+            
         else:
             st.warning('Spieler nicht gefunden.')
 
@@ -85,7 +104,7 @@ def main():
                 comparison_fig, player1_stats, player2_stats = compare_players(player1.player_id, player2.player_id)
                 st.plotly_chart(comparison_fig, use_container_width=True)
 
-            metric_labels = ['Goal Contribution', 'Defensive Contribution', 'Passing Efficiency', 'Dribbling Ability', 'Shot Efficiency', 'Discipline', 'Involvement', 'Penalty Contribution']
+            metric_labels = ['Goal Contribution', 'Defensive Contribution', 'Passing Efficiency', 'Dribbling Ability', 'Shot Efficiency', 'Discipline', 'Involvement', 'Overall Performance']
 
             player1_name_col, metric_cols, player2_name_col = st.columns([2, 4, 2])
             player1_name_col.markdown(f"<h3 style='text-align: center;'>{player1.name}</h3>", unsafe_allow_html=True)
