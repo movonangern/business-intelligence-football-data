@@ -1,7 +1,7 @@
 #streamlit\pages\2_🌍_Spieler.py
 
 import streamlit as st
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from utils.ORM_model import DimPlayer, DimClub
 from lib.Spieler.lib_spieler import get_player_stats, display_player_info, player_age, compare_players, player_market_value_prediction
@@ -159,7 +159,7 @@ def main():
                     </div>
                     """, unsafe_allow_html=True)
 
-                metric_label_col.markdown(f"<p style='text-align: center; font-weight: bold;'>{metric}</p>", unsafe_allow_html=True)
+                metric_label_col.markdown(f"<p style='text-align: center; font-weight: bold; font-size: 15px;  margin-top: 18px;'>{metric}</p>", unsafe_allow_html=True)
 
         else:
             st.warning('Einer oder beide Spieler nicht gefunden.')
