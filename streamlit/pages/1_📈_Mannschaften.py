@@ -580,18 +580,85 @@ def main():
                 with col3:
                     plot_game_outcomes(session, selected_team_name)
         with tab2:
-            # Streamlit App
-            st.title('Radar Chart Beispiel')
+            st.subheader('Spielervergleich (H2H)')
+            club1_col, club2_col = st.columns([3, 3])
+            clubs = session.query(DimClub).all()
             
-            team_names = ['Team A', 'Team B']
-            categories = ['Tore', 'Gegentore', 'Ballbesitz', 'Passgenauigkeit', 'Torschüsse', 'Dribblings', 'Zweikämpfe', 'Laufleistung']
-            values = [
-                [2, 1, 60, 80, 15, 10, 40, 12000],
-                [3, 0, 55, 85, 20, 8, 45, 12500]
-            ]
-            fig = create_radar_chart(team_names, categories, values)
-            
-            st.plotly_chart(fig)
-            
+            with club1_col:
+                club1_club_col, empty_col, club1_name_col = st.columns([ 1, 1, 3])
+                club1_name = club1_name_col.selectbox("Wähle Mannschaft 1", [club.name for club in clubs], key="club1")
+                club1 = session.query(DimClub).filter(DimClub.name == club1_name).first()
+                if club1:
+                    st.write("hi")
+            with club2_col:
+                club2_club_col, empty_col, club2_name_col = st.columns([1, 1, 3])
+                club2_name = club1_name_col.selectbox("Wähle Mannschaft 2", [club.name for club in clubs], key="club2")
+                club2 = session.query(DimClub).filter(DimClub.name == club2_name).first()       
+            if club1 and club2:
+                        _, chart_col, _ = st.columns([1.75, 8, 1])  # Hier wurde die Zahl auf 8 geändert
+                        with chart_col:
+                            comparison_fig, player1_stats, player2_stats = compare_players(player1.player_id, player2.player_id)
+                            st.plotly_chart(comparison_fig, use_container_width=True)
+
+                        metric_labels = ['Goal Contribution', 'Defensive Contribution', 'Passing Efficiency', 'Dribbling Ability', 'Shot Efficiency', 'Discipline', 'Involvement', 'Penalty Contribution']
+
+                        player1_name_col, metric_cols, player2_name_col = st.columns([2, 4, 2])
+                        player1_name_col.markdown(f"<h3 style='text-align: center;'>{club1.name}</h3>", unsafe_allow_html=True)
+                        player2_name_col.markdown(f"<h3 style='text-align: center;'>{club2.name}</h3>", unsafe_allow_html=True)
+
+                        for metric, player1_value, player2_value in zip(metric_labels, player1_stats, player2_stats):
+                            player1_metric_col, metric_label_col, player2_metric_col = metric_cols.columns([2, 2, 2])
+
+                            if player1_value is not None and player2_value is not None:
+                                if player1_value > player2_value:
+                                    player1_metric_col.markdown(f"""
+                                    <div style="background-color: #d4edda; padding: 15px; border-radius: 10px; text-align: center;">
+                                        <p style="color: #155724; font-size: 20px; font-weight: bold; margin: 0;">{player1_value:.2f} <span style="color: green;">+{player1_value - player2_value:.2f}</span></p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    player2_metric_col.markdown(f"""
+                                    <div style="background-color: #f8d7da; padding: 15px; border-radius: 10px; text-align: center;">
+                                        <p style="color: #721c24; font-size: 20px; font-weight: bold; margin: 0;">{player2_value:.2f}</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                elif player2_value > player1_value:
+                                    player1_metric_col.markdown(f"""
+                                    <div style="background-color: #f8d7da; padding: 15px; border-radius: 10px; text-align: center;">
+                                        <p style="color: #721c24; font-size: 20px; font-weight: bold; margin: 0;">{player1_value:.2f}</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    player2_metric_col.markdown(f"""
+                                    <div style="background-color: #d4edda; padding: 15px; border-radius: 10px; text-align: center;">
+                                        <p style="color: #155724; font-size: 20px; font-weight: bold; margin: 0;">{player2_value:.2f} <span style="color: green;">+{player2_value - player1_value:.2f}</span></p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                else:
+                                    player1_metric_col.markdown(f"""
+                                    <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                                        <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">{player1_value:.2f}</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    player2_metric_col.markdown(f"""
+                                    <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                                        <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">{player2_value:.2f}</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                            else:
+                                player1_metric_col.markdown(f"""
+                                <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                                    <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">-</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                player2_metric_col.markdown(f"""
+                                <div style="background-color: #e9ecef; padding: 15px; border-radius: 10px; text-align: center;">
+                                    <p style="color: #495057; font-size: 20px; font-weight: bold; margin: 0;">-</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+                            metric_label_col.markdown(f"<p style='text-align: center; font-weight: bold;'>{metric}</p>", unsafe_allow_html=True)
+
+            else:
+                st.warning('Einer oder beide Spieler nicht gefunden.')
+
 if __name__ == '__main__':
-    main()
+   main()
