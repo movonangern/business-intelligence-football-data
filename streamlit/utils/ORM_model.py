@@ -1,6 +1,6 @@
 # ORM_model.py
 
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Float
 from sqlalchemy.orm import relationship, declarative_base
 
 Base = declarative_base()
@@ -66,7 +66,14 @@ class DimPlayer(Base):
     current_club_name = Column(String(100))
     market_value_in_eur = Column(Integer)
     highest_market_value_in_eur = Column(Integer)
-    
+    goal_contribution = Column(Float)
+    defensive_contribution = Column(Float)
+    passing_efficiency = Column(Float)
+    dribbling_ability = Column(Float)
+    shot_efficiency = Column(Float)
+    discipline = Column(Float)
+    involvement = Column(Float)
+    overall_rating = Column(Float)
     
 class DimGame(Base):
     __tablename__ = 'dim_games'
