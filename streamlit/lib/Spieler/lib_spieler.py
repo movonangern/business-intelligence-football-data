@@ -5,10 +5,10 @@ from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 from utils.ORM_model import DimPlayer, FactAppearance, DimGame
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import plotly.graph_objs as go
+import joblib
+import os
 import numpy as np
 
 DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
@@ -57,6 +57,13 @@ def create_radar_chart(metrics, metric_labels, player_name):
     return radar_fig
 
 def player_market_value_prediction(player_id):
+    # Absoluten Pfad zur Modelldatei ermitteln
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(current_dir, 'market_value_model.pkl')
+    
+    # Vortrainiertes Modell laden
+    model = joblib.load(model_path)
+    
     # Daten aus der Datenbank abrufen
     player = session.query(DimPlayer).filter(DimPlayer.player_id == player_id).first()
     appearances = session.query(FactAppearance).filter(FactAppearance.player_id == player_id).all()
@@ -101,78 +108,24 @@ def player_market_value_prediction(player_id):
     }
     player_df = pd.DataFrame(data).dropna()
 
-    # Alle Spieler aus der Datenbank abrufen, die auch einen Eintrag in den FactAppearance haben
-    all_players = session.query(DimPlayer).join(FactAppearance).distinct(DimPlayer.player_id).all()
-    all_player_data = []
-
-    for p in all_players:
-        p_appearances = session.query(FactAppearance).filter(FactAppearance.player_id == p.player_id).all()
-        if p_appearances:
-            p_data = {
-                'market_value': p.market_value_in_eur,
-                'age': player_age(p.date_of_birth),
-                'contract_days_remaining': (pd.to_datetime(p.contract_expiration_date) - pd.Timestamp.now()).days if p.contract_expiration_date else None,
-                'assists': sum(a.assists or 0 for a in p_appearances),
-                'minutes_played': sum(a.minutes_played or 0 for a in p_appearances),
-                'goals2': sum(a.goals2 or 0 for a in p_appearances),
-                'assets': sum(a.assets or 0 for a in p_appearances),
-                'converted_penalties': sum(a.converted_penalties or 0 for a in p_appearances),
-                'attempted_penalty': sum(a.attempted_penalty or 0 for a in p_appearances),
-                'shots': sum(a.shots or 0 for a in p_appearances),
-                'shots_on_target': sum(a.shots_on_target or 0 for a in p_appearances),
-                'yellow_card': sum(a.yellow_card or 0 for a in p_appearances),
-                'red_card': sum(a.red_card or 0 for a in p_appearances),
-                'touches': sum(a.touches or 0 for a in p_appearances),
-                'number_of_tackles': sum(a.number_of_tackles or 0 for a in p_appearances),
-                'ball_win': sum(a.ball_win or 0 for a in p_appearances),
-                'blocks': sum(a.blocks or 0 for a in p_appearances),
-                'expected_goals': sum(a.expected_goals or 0 for a in p_appearances),
-                'expected_goals_without_penalties': sum(a.expected_goals_without_penalties or 0 for a in p_appearances),
-                'expected_goal_assists': sum(a.expected_goal_assists or 0 for a in p_appearances),
-                'shot_attempt': sum(a.shot_attempt or 0 for a in p_appearances),
-                'goal_assists': sum(a.goal_assists or 0 for a in p_appearances),
-                'successful_passes': sum(a.successful_passes or 0 for a in p_appearances),
-                'attempted_passes': sum(a.attempted_passes or 0 for a in p_appearances),
-                'pass_accuracy_in_percent': sum(a.pass_accuracy_in_percent or 0 for a in p_appearances),
-                'progressive_passes': sum(a.progressive_passes or 0 for a in p_appearances),
-                'carries': sum(a.carries or 0 for a in p_appearances),
-                'progressive_runs': sum(a.progressive_runs or 0 for a in p_appearances),
-                'attempted_dribbles': sum(a.attempted_dribbles or 0 for a in p_appearances),
-                'successful_dribbling': sum(a.successful_dribbling or 0 for a in p_appearances)
-            }
-            all_player_data.append(p_data)
-
-    all_player_df = pd.DataFrame(all_player_data).dropna()
-
-    # DataFrame bereinigen (NaN-Werte entfernen)
-    all_player_df = all_player_df.dropna()
-
-    # Modell trainieren
-    X = all_player_df.drop('market_value', axis=1)
-    y = all_player_df['market_value']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
-    model.fit(X_train, y_train)
-
     # Marktwert des Spielers vorhersagen
     player_stats = player_df.drop('market_value', axis=1)
     predicted_market_value = model.predict(player_stats)[0]
 
-    # Metriken zur Bewertung des Modells berechnen
-    y_pred = model.predict(X_test)
-    r2 = r2_score(y_test, y_pred)
-    mae = mean_absolute_error(y_test, y_pred)
-    mse = mean_squared_error(y_test, y_pred)
-    rmse = np.sqrt(mse)
-
     # Feature Importance berechnen
     importances = model.feature_importances_
-    feature_importances = pd.Series(importances, index=X.columns).sort_values(ascending=False)
+    feature_importances = pd.Series(importances, index=player_stats.columns).sort_values(ascending=False)
+
+    # Metriken berechnen
+    actual_market_value = player.market_value_in_eur
+    r2 = r2_score(player_df['market_value'], [predicted_market_value])
+    mae = mean_absolute_error(player_df['market_value'], [predicted_market_value])
+    mse = mean_squared_error(player_df['market_value'], [predicted_market_value])
+    rmse = np.sqrt(mse)
 
     # Ergebnisse visualisieren
     fig = go.Figure(data=[
-        go.Bar(name='Tatsächlicher Marktwert', x=['Marktwert'], y=[player.market_value_in_eur]),
+        go.Bar(name='Tatsächlicher Marktwert', x=['Marktwert'], y=[actual_market_value]),
         go.Bar(name='Vorhergesagter Marktwert', x=['Marktwert'], y=[predicted_market_value])
     ])
     fig.update_layout(title=f'Marktwertvorhersage für {player.name}', xaxis_title='', yaxis_title='Marktwert (€)')
