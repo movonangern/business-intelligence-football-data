@@ -22,4 +22,4 @@ EXPOSE 8501
 # RUN python clean_data.py
 
 # Streamlit-Anwendung starten
-CMD ["python", "entrypoint.py"] && ["streamlit", "run", "Startseite.py"]
+CMD ["bash", "entrypoint.sh"]
