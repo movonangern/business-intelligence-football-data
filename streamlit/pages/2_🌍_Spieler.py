@@ -5,9 +5,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from utils.ORM_model import DimPlayer, DimClub
 from lib.Spieler.lib_spieler import get_player_stats, display_player_info, player_age, compare_players, player_market_value_prediction
+from ENV import DATABASE_URL
 
-
-DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 session = Session()

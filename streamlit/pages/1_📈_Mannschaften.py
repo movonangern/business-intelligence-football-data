@@ -7,9 +7,9 @@ from utils.ORM_model import DimClub
 import streamlit as st
 from sqlalchemy.orm import sessionmaker
 from lib.Mannschaften.lib_mannschaften import get_club_info, get_players_by_team, create_players_df, get_top_scorers, plot_top_scorers_bar, plot_points_over_season, plot_home_away_game_results_bar, plot_game_outcomes, display_team_comparison_metrics, compare_team_performance, evaluate_team_form, get_club_total_market_value, calculate_league_average_points, get_preferred_formation_by_team_name, get_selected_team_id
+from ENV import DATABASE_URL
 
 # Datenbankverbindung einrichten
-DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 

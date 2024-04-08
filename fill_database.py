@@ -6,6 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 import numpy as np
 import pandas as pd
+from ENV import DATABASE_URL, DATABASE_URL_2
 
 BASE_PATH = 'data/OLAP data'
 
@@ -176,7 +177,7 @@ def process_file(file_name, model, session, base_path):
         session.commit()
 
 def main():
-    engine = create_engine("mysql+mysqlconnector://root:root@localhost:3306/", echo=False)
+    engine = create_engine(DATABASE_URL_2, echo=False)
     Session = sessionmaker(bind=engine)
     session = Session()
 
@@ -186,7 +187,7 @@ def main():
         session.execute(text("CREATE DATABASE football_olap_db;"))
         session.execute(text("USE football_olap_db;"))
 
-        engine = create_engine("mysql+mysqlconnector://root:root@localhost:3306/football_olap_db", echo=False)
+        engine = create_engine(DATABASE_URL, echo=False)
         Session = sessionmaker(bind=engine)
         session = Session()
 

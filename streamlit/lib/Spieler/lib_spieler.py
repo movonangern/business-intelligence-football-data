@@ -5,13 +5,11 @@ from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 from utils.ORM_model import DimPlayer, FactAppearance, DimGame, DimClub
 import pandas as pd
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import plotly.graph_objs as go
 import joblib
 import os
-import numpy as np
+from ENV import DATABASE_URL
 
-DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 session = Session()

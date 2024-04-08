@@ -3,9 +3,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import streamlit as st
 from lib.Markt.lib_markt import get_basic_filtered_players
+from ENV import DATABASE_URL
 
 # Datenbankverbindung einrichten
-DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 

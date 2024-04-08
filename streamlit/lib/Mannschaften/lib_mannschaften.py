@@ -13,9 +13,9 @@ import pandas as pd
 from datetime import datetime
 import plotly.graph_objects as go
 import numpy as np
+from ENV import DATABASE_URL
 
 # Datenbankverbindung einrichten
-DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 

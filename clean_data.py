@@ -4,7 +4,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, Float
 from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-import pandas as pd
+from ENV import DATABASE_URL
 
 BASE_PATH = 'data/OLAP data'
 
@@ -156,7 +156,6 @@ class FactAppearance(Base):
     attempted_dribbles = Column(Integer)
     successful_dribbling = Column(Integer)
 
-DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db"
 engine = create_engine(DATABASE_URL)
 DBSession = sessionmaker(bind=engine)
 session = DBSession()
