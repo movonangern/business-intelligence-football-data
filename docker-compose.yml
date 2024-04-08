@@ -25,5 +25,19 @@ services:
     depends_on:
       - db
 
+  app:
+    build: .
+    restart: always
+    ports:
+      - "8501:8501"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: football_db
+      PMA_HOST: db
+      PMA_USER: root
+      PMA_PASSWORD: root
+    depends_on:
+      - db
+
 volumes:
   db_data:
