@@ -13,8 +13,6 @@ DATABASE_URL = "mysql+mysqlconnector://root:root@localhost:3306/football_olap_db
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 
-    
-
 def main():
     st.set_page_config(layout='wide')
     st.title("Mannschaftsauswertung")
@@ -48,8 +46,6 @@ def main():
                     formatted_market_value = '{:,.2f} Mio'.format(total_market_value / 1000000) if total_market_value >= 1000000 else '{:,.2f}'.format(total_market_value)
                     col5.metric("Teamwert", f"€ {formatted_market_value}")  
                     
-                    
-                    
                     #### NEXT ROW
                     col1, col2, col3, col4, col5 = st.columns(5)
                     st.subheader(f"Vereinsinformationen für {selected_team_name}")
@@ -66,7 +62,7 @@ def main():
                     players = get_players_by_team(session, selected_team_name)
                     df_players = create_players_df(players)
                     # Scrollbare Tabelle für die Spielerinformationen
-                    st.write(df_players, use_container_width=True)   
+                    st.write(df_players)   
                 with col2:
                     st.subheader("Top 10 Scorer")
                     top_scorers_df = get_top_scorers(session, selected_team_id)
