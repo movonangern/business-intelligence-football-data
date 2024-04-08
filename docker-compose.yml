@@ -8,16 +8,14 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: football_db
-    ports:
-      - "3306:3306"
+    network_mode: "host"
     volumes:
       - db_data:/var/lib/mysql
 
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
     restart: always
-    ports:
-      - "8080:80"
+    network_mode: "host"
     environment:
       PMA_HOST: db
       PMA_USER: root
@@ -28,8 +26,7 @@ services:
   app:
     build: .
     restart: always
-    ports:
-      - "8501:8501"
+    network_mode: "host"
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: football_db

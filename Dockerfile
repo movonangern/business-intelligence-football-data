@@ -15,17 +15,11 @@ WORKDIR /app
 RUN pip install -r requirements.txt
 
 # Exponieren der Ports für MySQL, phpMyAdmin und Streamlit
-EXPOSE 3306 8080 8501
+EXPOSE 8501
 
-# Installation von Docker Compose
-RUN apt-get update && \
-    apt-get install -y docker.io docker-compose
+# Python-Skripte ausführen, um die Datenbank zu befüllen und zu bereinigen
+# RUN python fill_database.py
+# RUN python clean_data.py
 
-# Bash-Skript zum Warten auf Docker-Compose-Dienste und Starten der Anwendung kopieren
-COPY entrypoint.sh /app/entrypoint.sh
-
-# Rechte für das Bash-Skript setzen
-RUN chmod +x /app/entrypoint.sh
-
-# Bash-Skript als Startbefehl festlegen
-CMD ["bash", "entrypoint.sh"]
+# Streamlit-Anwendung starten
+CMD ["python", "entrypoint.py"] && ["streamlit", "run", "Startseite.py"]
