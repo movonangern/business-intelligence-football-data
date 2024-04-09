@@ -18,9 +18,22 @@ import os
 st.set_page_config(page_title="Fußball-Chatbot", page_icon="⚽️")
 st.write("# Willkommen beim Fußball-Chatbot! ⚽️")
 
-# Hier wird der openai_api_key als Parameter übergeben
-openai_api_key = "xxxxx"
-embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+openai_api_key = "XXXX"
+
+try:
+    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+except Exception as e:
+    st.error(f"Fehler beim Erstellen der Embeddings: {str(e)}")
+    openai_api_key = st.text_input("Bitte geben Sie Ihren eigenen OpenAI API-Schlüssel ein:", type="password")
+    st.write("Hinweis: Sie können einen API-Schlüssel unter https://platform.openai.com/api-keys erstellen.")
+
+    if openai_api_key:
+        try:
+            embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+            st.success("Eigener API-Schlüssel erfolgreich verwendet.")
+        except Exception as e:
+            st.error(f"Fehler beim Erstellen der Embeddings mit eigenem API-Schlüssel: {str(e)}")
+            st.stop()
 
 # Persistente Vektordatenbank mit Indizierung
 persist_directory = 'db'
