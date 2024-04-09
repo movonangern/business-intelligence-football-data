@@ -2,9 +2,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Column, Integer, String, ForeignKey, Float
 from sqlalchemy.orm import relationship, declarative_base
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from ENV import DATABASE_URL
+import sys
 
 BASE_PATH = 'data/OLAP data'
 
@@ -156,19 +157,30 @@ class FactAppearance(Base):
     attempted_dribbles = Column(Integer)
     successful_dribbling = Column(Integer)
 
-engine = create_engine(DATABASE_URL)
-DBSession = sessionmaker(bind=engine)
-session = DBSession()
+def main():
+    engine = create_engine(DATABASE_URL)
+    DBSession = sessionmaker(bind=engine)
+    session = DBSession()
 
-# Einträge finden, bei denen goals2 None ist
-appearances_to_delete = session.query(FactAppearance).filter(FactAppearance.goals2 == None).all()
+    # Einträge finden, bei denen goals2 None ist
+    appearances_to_delete = session.query(FactAppearance).filter(FactAppearance.goals2 == None).all()
 
-# Batchgröße definieren
-batch_size = 10000
+    # Batchgröße definieren
+    batch_size = 10000
 
-# Löschen von Einträgen aus der fact_appearances Tabelle in Batches
-for i in range(0, len(appearances_to_delete), batch_size):
-    appearances_batch = appearances_to_delete[i:i+batch_size]
-    for appearance in appearances_batch:
-        session.delete(appearance)
-    session.commit()
+    # Anzahl der Batches berechnen
+    num_batches = len(appearances_to_delete) // batch_size + 1
+
+    # Löschen von Einträgen aus der fact_appearances Tabelle in Batches
+    for i in range(0, len(appearances_to_delete), batch_size):
+        appearances_batch = appearances_to_delete[i:i+batch_size]
+        for appearance in appearances_batch:
+            session.delete(appearance)
+        session.commit()
+        print(f"Batch {i // batch_size + 1} von {num_batches} verarbeitet.", end='\r')
+        sys.stdout.flush()  # Ausgabe leeren
+
+    print("\nAlle Batches wurden verarbeitet.")  # Abschließende Nachricht
+
+if __name__ == "__main__":
+    main()
