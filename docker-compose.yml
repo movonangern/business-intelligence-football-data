@@ -24,7 +24,7 @@ services:
       - db
 
   app:
-    image: kick_consult:latest
+    image: kick_consult_app:latest
     restart: always
     ports:
       - 8501:8501

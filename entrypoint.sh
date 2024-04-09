@@ -1,6 +1,6 @@
 #!/bin/bash
 
-sleep 20
+sleep 30
 
 if [ ! -f exists ]; then
     python fill_database.py

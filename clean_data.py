@@ -179,17 +179,22 @@ def main():
     # Löschen von Einträgen aus der fact_appearances Tabelle in Batches
     for i in range(0, len(appearances_to_delete), batch_size):
         appearances_batch = appearances_to_delete[i:i+batch_size]
-        for appearance in appearances_batch:
-            session.delete(appearance)
-        session.commit()
+        try:
+            for appearance in appearances_batch:
+                session.delete(appearance)
+            session.commit()
+            current_batch = i // batch_size + 1
+            print(f"Batch {current_batch} von {num_batches} verarbeitet. {len(appearances_batch)} Einträge gelöscht.")
 
-        current_batch = i // batch_size + 1
-        elapsed_time = time.time() - start_time
-        remaining_batches = num_batches - current_batch
-        estimated_remaining_time = timedelta(seconds=elapsed_time / current_batch * remaining_batches)
+            elapsed_time = time.time() - start_time
+            remaining_batches = num_batches - current_batch
+            estimated_remaining_time = timedelta(seconds=elapsed_time / current_batch * remaining_batches)
+            print(f"Geschätzte Restzeit: {estimated_remaining_time}", end='\r')
+            sys.stdout.flush()
 
-        print(f"Batch {current_batch} von {num_batches} verarbeitet. Geschätzte Restzeit: {estimated_remaining_time}", end='\r')
-        sys.stdout.flush()
+        except Exception as e:
+            session.rollback()
+            print(f"Fehler beim Löschen der Einträge: {str(e)}")
 
     print("\nAlle Batches wurden verarbeitet.")
 
